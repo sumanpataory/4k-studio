@@ -1,0 +1,36 @@
+name: Adobe Stock 4K Ultra Render
+
+on:
+  workflow_dispatch:
+    inputs:
+      video_filename:
+        description: 'Uploaded Video Filename'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  upscale-4k:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Render 4K (Adobe Stock Standard)
+        run: |
+          mkdir -p output
+          ffmpeg -i "uploads/${{ github.event.inputs.video_filename }}" \
+            -vf "scale=3840:2160:flags=lanczos,unsharp=5:5:0.8:3:3:0.4,fps=60,format=yuv420p" \
+            -c:v libx264 -preset slow -crf 16 -movflags +faststart -an \
+            "output/4K_AdobeReady_${{ github.event.inputs.video_filename }}"
+
+      - name: Upload 4K Video to Releases (For Easy Download)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: render-${{ github.run_number }}
+          name: "4K Rendered Video #${{ github.run_number }}"
+          files: output/4K_AdobeReady_${{ github.event.inputs.video_filename }}
