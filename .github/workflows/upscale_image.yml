@@ -1,0 +1,45 @@
+name: Topaz-Style AI Image Upscaler
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_filename:
+        description: 'Uploaded Image Filename'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  ai-upscale:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Tools & Real-ESRGAN AI
+        run: |
+          sudo apt-get update && sudo apt-get install -y imagemagick wget unzip libomp5
+          wget https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          unzip realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          chmod +x realesrgan-ncnn-vulkan
+
+      - name: AI 4x Upscale + Natural Texture Polish (Adobe Stock Ready)
+        run: |
+          mkdir -p output
+          # 1. Run Real-ESRGAN AI 4x Upscale (CPU mode via llvmpipe on GitHub runner)
+          ./realesrgan-ncnn-vulkan -i "uploads/${{ github.event.inputs.image_filename }}" -o "output/temp_ai.png" -n realesrgan-x4plus -s 4
+          
+          # 2. Convert to 300 DPI, 98% Quality JPG with subtle natural sharpening (No plastic look)
+          convert "output/temp_ai.png" \
+            -units PixelsPerInch -density 300 \
+            -unsharp 0x0.6+0.5+0.008 \
+            -quality 98 \
+            "output/TopazAI_4x_${{ github.event.inputs.image_filename }}.jpg"
+
+      - name: Upload Upscaled Image to Releases
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: img-upscale-${{ github.run_number }}
+          name: "AI Upscaled Image #${{ github.run_number }}"
+          files: output/TopazAI_4x_${{ github.event.inputs.image_filename }}.jpg
