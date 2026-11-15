@@ -17,29 +17,31 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install High-End Image Tools
-        run: sudo apt-get update && sudo apt-get install -y ffmpeg imagemagick
+      - name: Install Virtual GPU Driver & Real-ESRGAN AI Engine
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers libvulkan1 imagemagick wget unzip libomp5
+          wget -q https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          unzip -q realesrgan-ncnn-vulkan-20220424-ubuntu.zip
+          chmod +x realesrgan-ncnn-vulkan
 
-      - name: 4x Natural Detail Upscale + 300 DPI (Adobe Stock Ready)
+      - name: Run True AI Neural Upscale + Natural Blend (Adobe Stock Ready)
         run: |
           mkdir -p output
           
-          # Step 1: 4x Lanczos High-Precision Upscale + Smart Edge Enhancement & Denoise
-          ffmpeg -i "uploads/${{ github.event.inputs.image_filename }}" \
-            -vf "hqdn3d=1.5:1.5:3:3,scale=iw*4:ih*4:flags=lanczos+accurate_rnd+full_chroma_int,cas=0.5" \
-            "output/temp_upscaled.png"
+          # 1. Run Real-ESRGAN AI Model (Cleans noise, reconstructs sharp edges & details)
+          ./realesrgan-ncnn-vulkan -i "uploads/${{ github.event.inputs.image_filename }}" -o "output/ai_clean.png" -n realesrgan-x4plus -s 4 -t 256
           
-          # Step 2: Apply 300 DPI & Natural DSLR Micro-Contrast (98% Quality JPEG)
-          convert "output/temp_upscaled.png" \
+          # 2. Natural Texture Polish + 300 DPI (95% Optimal Quality so MB is not bloated)
+          convert "output/ai_clean.png" \
             -units PixelsPerInch -density 300 \
-            -unsharp 0x0.7+0.6+0.008 \
-            -sampling-factor 4:4:4 \
-            -quality 98 \
-            "output/AdobeReady_4x_${{ github.event.inputs.image_filename }}.jpg"
+            -unsharp 0x0.5+0.4+0.008 \
+            -quality 95 \
+            "output/TopazClean_4x_${{ github.event.inputs.image_filename }}.jpg"
 
-      - name: Upload Upscaled Image to Releases
+      - name: Upload Clean AI Image to Releases
         uses: softprops/action-gh-release@v2
         with:
           tag_name: img-upscale-${{ github.run_number }}
-          name: "4x Upscaled Image #${{ github.run_number }}"
-          files: output/AdobeReady_4x_${{ github.event.inputs.image_filename }}.jpg
+          name: "AI Clean Image #${{ github.run_number }}"
+          files: output/TopazClean_4x_${{ github.event.inputs.image_filename }}.jpg
