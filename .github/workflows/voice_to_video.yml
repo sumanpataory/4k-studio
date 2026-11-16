@@ -1,4 +1,4 @@
-name: Faceless Line-Art Voice Video Studio
+name: Pro Cinema Faceless Video Studio
 
 on:
   workflow_dispatch:
@@ -14,30 +14,31 @@ permissions:
   contents: write
 
 jobs:
-  render-lineart-video:
+  render-pro-video:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Python, Pillow & FFmpeg
+      - name: Install Pro Fonts, Python Scientific Stack & FFmpeg
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg python3-pip python3-pil fonts-dejavu-core
-          pip3 install pillow
+          sudo apt-get install -y ffmpeg python3-pip fonts-noto-core fonts-noto-unhinted fonts-dejavu-core
+          pip3 install pillow numpy scipy
 
-      - name: Generate Faceless Line-Art Animation & Sync Audio
+      - name: Render Cinema-Grade Faceless Animation
         run: |
           mkdir -p output
           cat << 'EOF' > render_engine.py
           import json, math, os, subprocess, sys, textwrap
-          from PIL import Image, ImageDraw, ImageFont
+          import numpy as np
+          from PIL import Image, ImageDraw, ImageFont, ImageFilter
 
           job_id = sys.argv[1]
           ratio = sys.argv[2]
           audio_path = f"uploads/{job_id}.mp3"
           json_path = f"uploads/{job_id}.json"
-          out_path = f"output/MentalPeace_{job_id}.mp4"
+          out_path = f"output/ProCinema_{job_id}.mp4"
 
           W, H = (1920, 1080) if ratio == "16:9" else (1080, 1920)
           FPS = 30
@@ -49,114 +50,237 @@ jobs:
           with open(json_path, "r", encoding="utf-8") as f:
               scenes = json.load(f)
 
-          font_size = int(W * 0.035) if ratio == "16:9" else int(W * 0.055)
-          font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+          # Load Fonts (Supports both English & Bangla)
+          def get_font(size):
+              paths = [
+                  "/usr/share/fonts/truetype/noto/NotoSansBengali-Bold.ttf",
+                  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+              ]
+              for p in paths:
+                  if os.path.exists(p):
+                      return ImageFont.truetype(p, size)
+              return ImageFont.load_default()
+
+          font_title = get_font(int(min(W, H) * 0.052))
+          font_sub = get_font(int(min(W, H) * 0.036))
+          font_hud = get_font(int(min(W, H) * 0.024))
+
+          # Pre-compute Vignette Mask for Cinematic Look
+          Y, X = np.ogrid[:H, :W]
+          cx_v, cy_v = W / 2, H / 2
+          dist = np.sqrt((X - cx_v)**2 + (Y - cy_v)**2) / np.sqrt(cx_v**2 + cy_v**2)
+          vignette = np.clip(1.0 - 0.65 * (dist**1.8), 0.2, 1.0)[:, :, np.newaxis]
+
+          # Color Palettes: (BG_Top, BG_Bottom, Primary_Neon, Secondary_Accent)
+          PALETTES = {
+              "overthinking": ((12, 10, 24), (28, 12, 36), (255, 75, 110), (255, 190, 90)),
+              "introvert":    ((8, 16, 30),  (14, 34, 52), (70, 210, 255), (160, 130, 255)),
+              "peace":        ((8, 22, 20),  (16, 42, 36), (80, 245, 180), (200, 255, 220)),
+              "clarity":      ((20, 16, 28), (38, 26, 48), (255, 215, 90), (110, 230, 255))
+          }
 
           ffmpeg_cmd = [
               "ffmpeg", "-y", "-f", "rawvideo", "-vcodec", "rawvideo",
               "-s", f"{W}x{H}", "-pix_fmt", "rgb24", "-r", str(FPS), "-i", "-",
-              "-i", audio_path, "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+              "-i", audio_path, "-c:v", "libx264", "-preset", "fast", "-crf", "17",
               "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest", out_path
           ]
           proc = subprocess.Popen(ffmpeg_cmd, stdin=subprocess.PIPE)
 
           for frame in range(total_frames):
               t = frame / FPS
-              active = scenes[-1] if scenes else {"text": "", "mood": "peace", "pose": "calm"}
+              active = scenes[-1] if scenes else {}
               for s in scenes:
                   if float(s.get("start", 0)) <= t <= float(s.get("end", 9999)):
                       active = s
                       break
 
-              mood = active.get("mood", "peace")
-              pose = active.get("pose", "calm")
+              s_start = float(active.get("start", 0))
+              s_end = float(active.get("end", s_start + 4.0))
+              s_prog = np.clip((t - s_start) / max(0.1, s_end - s_start), 0.0, 1.0)
+
+              mood = active.get("mood", "peace").lower()
+              if mood not in PALETTES: mood = "peace"
+              visual = active.get("visual", "solitude_bubble").lower()
               text = active.get("text", "")
+              highlight = active.get("highlight", "").strip()
+              stat_label = active.get("stat_label", "MENTAL ENERGY")
+              stat_val = int(active.get("stat_value", 75))
 
-              bg_colors = {
-                  "overthinking": (18, 20, 32),
-                  "introvert": (15, 26, 36),
-                  "peace": (14, 29, 26),
-                  "energy": (25, 22, 36)
-              }
-              img = Image.new("RGB", (W, H), bg_colors.get(mood, (16, 22, 30)))
-              draw = ImageDraw.Draw(img)
+              bg_top, bg_bot, c_main, c_sec = PALETTES[mood]
 
-              # Floating calm stars/dots (Non-living geometric)
-              for i in range(15):
-                  px = int((W * ((i * 0.17 + t * 0.015) % 1.0)))
-                  py = int((H * ((i * 0.23 - t * 0.02) % 1.0)))
-                  draw.ellipse([px, py, px+4, py+4], fill=(70, 95, 115))
+              # 1. Create Smooth Gradient Background + Vignette
+              grad_t = np.linspace(0, 1, H)[:, np.newaxis, np.newaxis]
+              bg_arr = (np.array(bg_top) * (1 - grad_t) + np.array(bg_bot) * grad_t) * vignette
+              base_img = Image.fromarray(bg_arr.astype(np.uint8), "RGB").convert("RGBA")
 
-              cx, cy = W // 2, int(H * 0.43)
-              breathe = int(math.sin(t * 2.5) * 6)
-              head_r = int(min(W, H) * 0.055)
-              head_y = cy - int(min(W, H) * 0.14) + breathe
+              # 2. Foreground & Glow Layer
+              fg_layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+              draw = ImageDraw.Draw(fg_layer)
 
-              # Ground Line
-              ground_y = cy + int(min(W, H) * 0.20)
-              draw.line([cx - 220, ground_y, cx + 220, ground_y], fill=(80, 110, 130), width=4)
+              cx, cy = W // 2, int(H * 0.42)
+              floor_y = cy + int(min(W, H) * 0.22)
 
-              # FACELESS HEAD (Pure Blank Circle - No Eyes, No Nose, No Mouth)
-              draw.ellipse([cx - head_r, head_y - head_r, cx + head_r, head_y + head_r], outline=(240, 245, 255), width=6)
+              # Perspective Horizon Grid on Floor
+              draw.line([0, floor_y, W, floor_y], fill=c_main + (110,), width=3)
+              for gx in range(-6, 7):
+                  x_top = cx + gx * int(W * 0.06)
+                  x_bot = cx + gx * int(W * 0.18)
+                  draw.line([x_top, floor_y, x_bot, H], fill=c_main + (35,), width=2)
 
-              # Abstract Line-Art Body & Limbs
-              neck_y = head_y + head_r
-              hip_y = cy + int(min(W, H) * 0.07)
-              draw.line([cx, neck_y, cx, hip_y], fill=(240, 245, 255), width=6)
-              draw.line([cx, hip_y, cx - 45, ground_y], fill=(240, 245, 255), width=6)
-              draw.line([cx, hip_y, cx + 45, ground_y], fill=(240, 245, 255), width=6)
+              # Floating Bokeh / Ambient Particles
+              for i in range(22):
+                  px = int((W * ((i * 0.19 + t * 0.012 * (1 if i%2==0 else -1)) % 1.0)))
+                  py = int((H * ((i * 0.27 - t * 0.025) % 1.0)))
+                  pr = 3 + (i % 5) * 2
+                  alpha = int(60 + 50 * math.sin(t * 2 + i))
+                  draw.ellipse([px-pr, py-pr, px+pr, py+pr], fill=c_sec + (alpha,))
 
-              sh_y = neck_y + 20
-              if pose == "hands_on_head":
-                  draw.line([cx, sh_y, cx - 75, head_y], fill=(240, 245, 255), width=6)
-                  draw.line([cx - 75, head_y, cx - head_r, head_y - 10], fill=(240, 245, 255), width=6)
-                  draw.line([cx, sh_y, cx + 75, head_y], fill=(240, 245, 255), width=6)
-                  draw.line([cx + 75, head_y, cx + head_r, head_y - 10], fill=(240, 245, 255), width=6)
-              elif pose == "arms_open":
-                  wave = int(math.sin(t * 4) * 15)
-                  draw.line([cx, sh_y, cx - 110, sh_y - 30 + wave], fill=(240, 245, 255), width=6)
-                  draw.line([cx, sh_y, cx + 110, sh_y - 30 - wave], fill=(240, 245, 255), width=6)
+              # 3. Draw Faceless Minimalist Character (NO EYES, NO NOSE, NO MOUTH)
+              breathe = int(math.sin(t * 2.8) * 7)
+              head_r = int(min(W, H) * 0.052)
+              head_y = cy - int(min(W, H) * 0.12) + breathe
+              neck_y = head_y + head_r + 6
+              hip_y = cy + int(min(W, H) * 0.08)
+
+              # Soft Mirror Reflection under Floor
+              refl_alpha = 45
+              draw.ellipse([cx - head_r, floor_y + 20, cx + head_r, floor_y + 20 + head_r*2], outline=c_main + (refl_alpha,), width=4)
+
+              # Faceless Glowing Head Ring
+              draw.ellipse([cx - head_r, head_y - head_r, cx + head_r, head_y + head_r], fill=bg_top + (220,), outline=(255, 255, 255, 255), width=6)
+              draw.ellipse([cx - head_r - 6, head_y - head_r - 6, cx + head_r + 6, head_y + head_r + 6], outline=c_main + (160,), width=3)
+
+              # Torso & Legs (Rounded Minimalist Line-Art)
+              draw.line([cx, neck_y, cx, hip_y], fill=(255, 255, 255, 245), width=6)
+              if visual == "lotus_waves":
+                  # Cross-legged Peaceful Meditation Pose
+                  draw.line([cx, hip_y, cx - 65, floor_y - 10], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx - 65, floor_y - 10, cx + 20, floor_y - 5], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx, hip_y, cx + 65, floor_y - 10], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx + 65, floor_y - 10, cx - 20, floor_y - 5], fill=(255, 255, 255, 245), width=6)
               else:
-                  draw.line([cx, sh_y, cx - 65, hip_y - 10], fill=(240, 245, 255), width=6)
-                  draw.line([cx, sh_y, cx + 65, hip_y - 10], fill=(240, 245, 255), width=6)
+                  draw.line([cx, hip_y, cx - 42, floor_y], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx, hip_y, cx + 42, floor_y], fill=(255, 255, 255, 245), width=6)
 
-              # Symbolic Non-Living Objects Above Head
-              sym_y = head_y - head_r - 75
-              if mood == "overthinking":
-                  # Tangled chaotic lines above head
-                  for k in range(10):
-                      ox1 = cx + int(math.sin(t * 6 + k) * 75)
-                      oy1 = sym_y + int(math.cos(t * 5 + k * 2) * 30)
-                      ox2 = cx + int(math.sin(t * 6 + k + 2) * 75)
-                      oy2 = sym_y + int(math.cos(t * 5 + (k + 2) * 2) * 30)
-                      draw.line([ox1, oy1, ox2, oy2], fill=(255, 110, 110), width=4)
-              elif mood == "introvert":
-                  # Peaceful Solitude Shield / Bubble around character
-                  rad = int(min(W, H) * 0.25) + breathe
-                  draw.ellipse([cx - rad, cy - rad, cx + rad, cy + rad], outline=(100, 200, 255), width=3)
-              elif mood == "energy":
-                  # Battery / Light Icon above head
-                  draw.rectangle([cx - 40, sym_y - 20, cx + 40, sym_y + 20], outline=(255, 220, 100), width=4)
-                  fill_w = int(((math.sin(t * 2) + 1) / 2) * 70)
-                  draw.rectangle([cx - 35, sym_y - 15, cx - 35 + fill_w, sym_y + 15], fill=(255, 220, 100))
+              # Arms based on mood/visual
+              sh_y = neck_y + 16
+              if mood == "overthinking" or visual == "storm_cloud":
+                  # Hands holding head in stress
+                  draw.line([cx, sh_y, cx - 75, head_y + 10], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx - 75, head_y + 10, cx - head_r - 4, head_y - 8], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx, sh_y, cx + 75, head_y + 10], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx + 75, head_y + 10, cx + head_r + 4, head_y - 8], fill=(255, 255, 255, 245), width=6)
+              elif mood == "clarity":
+                  wave = int(math.sin(t * 4) * 14)
+                  draw.line([cx, sh_y, cx - 105, sh_y - 35 + wave], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx, sh_y, cx + 105, sh_y - 35 - wave], fill=(255, 255, 255, 245), width=6)
               else:
-                  # Mental Peace Expanding Aura Waves
-                  for r_idx in range(3):
-                      rad = int(((t * 35 + r_idx * 45) % 130) + head_r + 15)
-                      draw.ellipse([cx - rad, head_y - rad, cx + rad, head_y + rad], outline=(100, 240, 190), width=2)
+                  draw.line([cx, sh_y, cx - 65, hip_y - 5], fill=(255, 255, 255, 245), width=6)
+                  draw.line([cx, sh_y, cx + 65, hip_y - 5], fill=(255, 255, 255, 245), width=6)
 
-              # Subtitle Box at Bottom
+              # 4. Topic-Specific Rich Metaphor Visuals (Above / Around Character)
+              sym_y = head_y - head_r - 85
+              if visual == "storm_cloud" or mood == "overthinking":
+                  # Swirling Chaos Vortex & Lightning above head
+                  for k in range(16):
+                      ang = t * 4.5 + k * 0.4
+                      rx = int(85 * math.cos(ang))
+                      ry = int(32 * math.sin(ang * 1.7))
+                      ang2 = ang + 0.6
+                      rx2 = int(85 * math.cos(ang2))
+                      ry2 = int(32 * math.sin(ang2 * 1.7))
+                      draw.line([cx + rx, sym_y + ry, cx + rx2, sym_y + ry2], fill=c_main + (220,), width=4)
+                  # Lightning bolt flash
+                  if int(t * 6) % 3 == 0:
+                      draw.line([cx, sym_y+25, cx-18, sym_y+50, cx+8, sym_y+55, cx-10, sym_y+80], fill=c_sec + (255,), width=4)
+
+              elif visual == "solitude_bubble" or mood == "introvert":
+                  # Double Rotating Sacred Shield / Comfort Zone around Introvert
+                  rad = int(min(W, H) * 0.25)
+                  for seg in range(0, 360, 30):
+                      a1 = seg + int(t * 25)
+                      draw.arc([cx - rad, cy - rad, cx + rad, cy + rad], start=a1, end=a1+18, fill=c_main + (220,), width=5)
+                  rad2 = rad - 22
+                  draw.ellipse([cx - rad2, cy - rad2, cx + rad2, cy + rad2], outline=c_sec + (120,), width=2)
+
+              elif visual == "battery_meter":
+                  # Floating Holographic Social/Mental Battery Card
+                  bw, bh = 220, 64
+                  bx, by = cx - bw//2, sym_y - bh//2
+                  draw.rounded_rectangle([bx, by, bx+bw, by+bh], radius=12, outline=c_main + (240,), width=4)
+                  draw.rectangle([bx+bw, by+18, bx+bw+10, by+bh-18], fill=c_main + (240,))
+                  fill_w = int((bw - 16) * (0.25 + 0.65 * (0.5 + 0.5 * math.sin(t * 2))))
+                  draw.rounded_rectangle([bx+8, by+8, bx+8+fill_w, by+bh-8], radius=6, fill=c_sec + (220,))
+
+              elif visual == "mind_scale":
+                  # Balancing Scale of Thoughts vs Peace
+                  tilt = math.sin(t * 2.2) * 22
+                  lx, ly = cx - 120, sym_y + int(tilt)
+                  rx, ry = cx + 120, sym_y - int(tilt)
+                  draw.line([lx, ly, rx, ry], fill=c_main + (240,), width=5)
+                  draw.ellipse([lx-25, ly, lx+25, ly+18], outline=c_sec + (220,), width=3)
+                  draw.ellipse([rx-25, ry, rx+25, ry+18], outline=c_sec + (220,), width=3)
+
+              else:
+                  # Mental Peace Sacred Geometry Mandala / Expanding Aura
+                  for r_i in range(4):
+                      rad = int(((t * 38 + r_i * 42) % 160) + head_r + 10)
+                      alpha = int(max(0, 220 - (rad / 180) * 220))
+                      draw.ellipse([cx - rad, head_y - rad, cx + rad, head_y + rad], outline=c_main + (alpha,), width=3)
+                  # Geometric Star / Lotus above head
+                  for p in range(8):
+                      ang = t * 0.8 + p * (math.pi / 4)
+                      px = cx + int(math.cos(ang) * 45)
+                      py = sym_y + int(math.sin(ang) * 45)
+                      draw.ellipse([px-12, py-12, px+12, py+12], outline=c_sec + (180,), width=2)
+
+              # 5. Manim-Style Dynamic HUD Infographic Widget (Top Corner)
+              hud_w = int(W * 0.28) if ratio == "16:9" else int(W * 0.65)
+              hud_x = int(W * 0.05) if ratio == "16:9" else (W - hud_w) // 2
+              hud_y = int(H * 0.06)
+              draw.rounded_rectangle([hud_x, hud_y, hud_x + hud_w, hud_y + 78], radius=14, fill=(10, 14, 24, 190), outline=c_main + (150,), width=2)
+              draw.text((hud_x + 18, hud_y + 12), f"{stat_label.upper()} : {int(stat_val * min(1.0, s_prog*1.8))}%", font=font_hud, fill=(230, 240, 255, 255))
+              bar_w = int((hud_w - 36) * (stat_val / 100.0) * min(1.0, s_prog * 1.6))
+              draw.rounded_rectangle([hud_x + 18, hud_y + 46, hud_x + hud_w - 18, hud_y + 60], radius=6, fill=(40, 50, 70, 200))
+              if bar_w > 8:
+                  draw.rounded_rectangle([hud_x + 18, hud_y + 46, hud_x + 18 + bar_w, hud_y + 60], radius=6, fill=c_main + (255,))
+
+              # 6. Apply Real Cinema Neon Bloom / Glow
+              glow_layer = fg_layer.filter(ImageFilter.GaussianBlur(radius=14))
+              composed = Image.alpha_composite(base_img, glow_layer)
+              composed = Image.alpha_composite(composed, fg_layer)
+              final_draw = ImageDraw.Draw(composed)
+
+              # 7. Kinetic Typography Card with Keyword Highlight & Progress Bar
               if text:
-                  lines = textwrap.wrap(text, width=32 if ratio == "16:9" else 20)
-                  ty = int(H * 0.76)
-                  for line in lines[:3]:
-                      bbox = draw.textbbox((0, 0), line, font=font_main)
-                      tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                      draw.rectangle([cx - tw//2 - 20, ty - 8, cx + tw//2 + 20, ty + th + 12], fill=(10, 14, 22))
-                      draw.text((cx - tw // 2, ty), line, font=font_main, fill=(255, 255, 255))
-                      ty += th + 24
+                  wrap_w = 34 if ratio == "16:9" else 20
+                  lines = textwrap.wrap(text, width=wrap_w)[:3]
+                  card_w = int(W * 0.82) if ratio == "16:9" else int(W * 0.90)
+                  card_h = len(lines) * int(font_sub.size * 1.45) + 46
+                  card_x = (W - card_w) // 2
+                  card_y = int(H * 0.74)
 
-              proc.stdin.write(img.tobytes())
+                  # Glassmorphic Dark Card
+                  final_draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + card_h], radius=20, fill=(8, 12, 22, 225), outline=c_main + (180,), width=3)
+
+                  # Draw lines and highlight key phrase
+                  ty = card_y + 20
+                  for line in lines:
+                      bbox = final_draw.textbbox((0, 0), line, font=font_sub)
+                      lw, lh = bbox[2] - bbox[0], bbox[3] - bbox[1]
+                      lx = cx - lw // 2
+                      if highlight and highlight.lower() in line.lower():
+                          final_draw.text((lx, ty), line, font=font_sub, fill=c_sec + (255,))
+                      else:
+                          final_draw.text((lx, ty), line, font=font_sub, fill=(255, 255, 255, 255))
+                      ty += int(font_sub.size * 1.45)
+
+                  # Bottom Scene Progress Indicator
+                  p_w = int((card_w - 40) * s_prog)
+                  final_draw.rounded_rectangle([card_x + 20, card_y + card_h - 10, card_x + 20 + max(10, p_w), card_y + card_h - 4], radius=3, fill=c_sec + (255,))
+
+              proc.stdin.write(composed.convert("RGB").tobytes())
 
           proc.stdin.close()
           proc.wait()
@@ -177,5 +301,5 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: voice-${{ github.event.inputs.job_id }}
-          name: "Faceless Video (${{ github.event.inputs.job_id }})"
-          files: output/MentalPeace_${{ github.event.inputs.job_id }}.mp4
+          name: "Pro Cinema Video (${{ github.event.inputs.job_id }})"
+          files: output/ProCinema_${{ github.event.inputs.job_id }}.mp4
