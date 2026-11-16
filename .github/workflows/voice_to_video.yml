@@ -1,10 +1,10 @@
-name: Kinetic UI Motion Graphics Studio
+name: OpenMontage HyperFrames Cloud Renderer
 
 on:
   workflow_dispatch:
     inputs:
       job_id:
-        description: 'Job ID for Audio and Script'
+        description: 'Job ID'
         required: true
       aspect_ratio:
         description: '16:9 or 9:16'
@@ -14,31 +14,31 @@ permissions:
   contents: write
 
 jobs:
-  render-kinetic-ui:
+  render-openmontage:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Install Chromium UI Engine, Playwright & FFmpeg
+      - name: Install HyperFrames Chromium & FFmpeg
         run: |
           sudo apt-get update
           sudo apt-get install -y ffmpeg fonts-noto-core fonts-noto-color-emoji
           pip3 install playwright
           playwright install --with-deps chromium
 
-      - name: Render Kinetic UI & Floating Cards Animation
+      - name: Render OpenMontage Composition to MP4
         run: |
           mkdir -p output
-          cat << 'EOF' > ui_renderer.py
-          import json, math, os, subprocess, sys
+          cat << 'EOF' > render_hyperframes.py
+          import os, subprocess, sys
           from playwright.sync_api import sync_playwright
 
           job_id = sys.argv[1]
           ratio = sys.argv[2]
           audio_path = f"uploads/{job_id}.mp3"
-          json_path = f"uploads/{job_id}.json"
-          out_path = f"output/KineticUI_{job_id}.mp4"
+          html_path = f"uploads/{job_id}.html"
+          out_path = f"output/OpenMontage_{job_id}.mp4"
 
           W, H = (1920, 1080) if ratio == "16:9" else (1080, 1920)
           FPS = 30
@@ -46,285 +46,6 @@ jobs:
           cmd_dur = ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", audio_path]
           duration = float(subprocess.check_output(cmd_dur).decode().strip())
           total_frames = int(duration * FPS)
-
-          with open(json_path, "r", encoding="utf-8") as f:
-              scenes = json.load(f)
-
-          html_template = """
-          <!DOCTYPE html>
-          <html>
-          <head>
-          <meta charset="UTF-8">
-          <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;700;800&family=Noto+Sans+Bengali:wght@500;700;800&display=swap" rel="stylesheet">
-          <style>
-            * { box-sizing: border-box; margin: 0; padding: 0; }
-            body {
-              width: __W__px; height: __H__px; overflow: hidden;
-              font-family: 'Plus Jakarta Sans', 'Noto Sans Bengali', sans-serif;
-              background-color: #F8FAFC;
-              position: relative;
-            }
-            /* Moving Dot Grid Background */
-            .dot-grid {
-              position: absolute; inset: -100px;
-              background-image: radial-gradient(#CBD5E1 2.2px, transparent 2.2px);
-              background-size: 38px 38px;
-              opacity: 0.85;
-            }
-            /* Soft Ambient Gradient Blobs */
-            .blob-1 {
-              position: absolute; width: 650px; height: 650px; border-radius: 50%;
-              background: radial-gradient(circle, rgba(99,102,241,0.13) 0%, rgba(99,102,241,0) 70%);
-              top: -120px; right: -100px;
-            }
-            .blob-2 {
-              position: absolute; width: 600px; height: 600px; border-radius: 50%;
-              background: radial-gradient(circle, rgba(16,185,129,0.12) 0%, rgba(16,185,129,0) 70%);
-              bottom: -120px; left: -100px;
-            }
-            /* Top Category Pill */
-            .top-bar {
-              position: absolute; top: 55px; left: 50%; transform: translateX(-50%);
-              display: flex; align-items: center; gap: 14px;
-              background: #FFFFFF; padding: 12px 28px; border-radius: 999px;
-              box-shadow: 0 12px 30px -6px rgba(15, 23, 42, 0.08), 0 0 0 1px rgba(15, 23, 42, 0.05);
-              z-index: 10;
-            }
-            .dot-live { width: 12px; height: 12px; border-radius: 50%; background: #6366F1; }
-            .top-tag { font-size: 20px; font-weight: 800; color: #334155; letter-spacing: 1.5px; text-transform: uppercase; }
-
-            /* Main Stage for Floating UI Cards */
-            .stage {
-              position: absolute; top: 150px; bottom: 260px; left: 80px; right: 80px;
-              display: flex; flex-direction: column; justify-content: center; align-items: center;
-              z-index: 5;
-            }
-            .headline {
-              font-size: __HEAD_SIZE__px; font-weight: 800; color: #0F172A;
-              text-align: center; line-height: 1.25; margin-bottom: 36px; max-width: 90%;
-            }
-            .hl-pill {
-              display: inline-block; background: #EEF2FF; color: #4F46E5;
-              padding: 4px 20px; border-radius: 16px; border: 2px solid #C7D2FE;
-              box-shadow: 0 8px 20px -4px rgba(79, 70, 229, 0.2);
-            }
-
-            /* Layout 1: Floating List Cards with Number Badges */
-            .cards-wrap {
-              display: flex; flex-direction: __CARD_DIR__; gap: 26px; width: 100%; max-width: 1450px; justify-content: center;
-            }
-            .ui-card {
-              flex: 1; background: #FFFFFF; border-radius: 28px; padding: 32px 34px;
-              box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.10), 0 0 0 1.5px rgba(15, 23, 42, 0.05);
-              display: flex; align-items: center; gap: 24px;
-            }
-            .num-badge {
-              width: 64px; height: 64px; border-radius: 20px; background: #4F46E5; color: #FFFFFF;
-              display: flex; align-items: center; justify-content: center;
-              font-size: 28px; font-weight: 800; flex-shrink: 0;
-              box-shadow: 0 12px 24px -6px rgba(79, 70, 229, 0.45);
-            }
-            .card-txt { font-size: 28px; font-weight: 700; color: #1E293B; line-height: 1.35; }
-
-            /* Layout 2: macOS Browser Window UI Popup */
-            .browser-win {
-              width: 100%; max-width: 1150px; background: #FFFFFF; border-radius: 28px;
-              box-shadow: 0 30px 60px -15px rgba(15, 23, 42, 0.14), 0 0 0 1.5px rgba(15, 23, 42, 0.08);
-              overflow: hidden;
-            }
-            .win-header {
-              background: #F1F5F9; padding: 18px 26px; display: flex; align-items: center; gap: 12px;
-              border-bottom: 1.5px solid #E2E8F0;
-            }
-            .win-dot { width: 15px; height: 15px; border-radius: 50%; }
-            .win-url {
-              margin-left: 16px; background: #FFFFFF; padding: 6px 24px; border-radius: 999px;
-              font-size: 16px; font-weight: 700; color: #64748B; border: 1px solid #E2E8F0;
-            }
-            .win-body { padding: 42px; display: flex; flex-direction: column; gap: 26px; }
-            .stat-row { display: flex; justify-content: space-between; align-items: center; font-size: 26px; font-weight: 800; color: #0F172A; }
-            .prog-bg { width: 100%; height: 24px; background: #F1F5F9; border-radius: 999px; overflow: hidden; }
-            .prog-fill { height: 100%; background: linear-gradient(90deg, #4F46E5, #06B6D4); border-radius: 999px; }
-
-            /* Layout 3: Bento Grid Metric Box */
-            .bento-grid {
-              display: grid; grid-template-columns: 1fr 1.3fr; gap: 28px; width: 100%; max-width: 1200px;
-            }
-            .bento-box {
-              background: #FFFFFF; border-radius: 32px; padding: 40px;
-              box-shadow: 0 24px 48px -12px rgba(15, 23, 42, 0.10), 0 0 0 1.5px rgba(15, 23, 42, 0.06);
-              display: flex; flex-direction: column; justify-content: center;
-            }
-            .big-stat { font-size: 86px; font-weight: 800; color: #4F46E5; line-height: 1; margin-bottom: 12px; }
-
-            /* Bottom Synced Subtitle Pill & Cute Brown Box Mascot */
-            .bottom-hud {
-              position: absolute; bottom: 42px; left: 80px; right: 80px;
-              display: flex; align-items: center; justify-content: center; gap: 32px;
-              z-index: 20;
-            }
-            .mascot-wrap {
-              position: relative; width: 130px; height: 130px; flex-shrink: 0;
-              display: flex; align-items: center; justify-content: center;
-            }
-            .mascot-bubble {
-              position: absolute; top: -28px; right: -14px;
-              background: #0F172A; color: #FFFFFF; font-size: 24px; font-weight: 800;
-              padding: 6px 16px; border-radius: 999px;
-              box-shadow: 0 10px 20px rgba(0,0,0,0.18);
-            }
-            .sub-pill {
-              background: rgba(15, 23, 42, 0.94); color: #FFFFFF;
-              padding: 24px 42px; border-radius: 26px; font-size: 30px; font-weight: 700;
-              box-shadow: 0 20px 40px -10px rgba(15, 23, 42, 0.35);
-              max-width: 1150px; line-height: 1.4; text-align: center;
-            }
-          </style>
-          </head>
-          <body>
-            <div class="dot-grid" id="grid"></div>
-            <div class="blob-1"></div>
-            <div class="blob-2"></div>
-
-            <div class="top-bar" id="topBar">
-              <div class="dot-live" id="dotLive"></div>
-              <div class="top-tag" id="topTag">MINDSET UI</div>
-            </div>
-
-            <div class="stage" id="stage"></div>
-
-            <div class="bottom-hud">
-              <!-- Cute Animated Brown Box Mascot (Pure Geometric Cube - No Eyes/Face) -->
-              <div class="mascot-wrap" id="mascot">
-                <div class="mascot-bubble" id="mascotSym">💡</div>
-                <svg width="115" height="115" viewBox="0 0 120 120" fill="none">
-                  <!-- Drop Shadow -->
-                  <ellipse cx="60" cy="108" rx="36" ry="7" fill="rgba(15,23,42,0.14)"/>
-                  <!-- 3D Brown Cardboard Box Body -->
-                  <rect x="22" y="34" width="76" height="66" rx="16" fill="#D97706" stroke="#78350F" stroke-width="4"/>
-                  <rect x="26" y="38" width="68" height="22" rx="10" fill="#F59E0B"/>
-                  <!-- Box Packing Tape Detail on Top (Zero Face/Animal features) -->
-                  <rect x="52" y="30" width="16" height="26" rx="4" fill="#FEF3C7" stroke="#78350F" stroke-width="3"/>
-                  <line x1="36" y1="84" x2="54" y2="84" stroke="#FEF3C7" stroke-width="4" stroke-linecap="round"/>
-                </svg>
-              </div>
-              <div class="sub-pill" id="subText">Loading voice sync...</div>
-            </div>
-
-            <script>
-              function spring(p) {
-                return 1 - Math.pow(2, -10 * p) * Math.cos((p * 10 - 0.75) * (2 * Math.PI) / 3);
-              }
-
-              window.renderFrame = function(data) {
-                const t = data.t;
-                const p = data.prog;
-                const scene = data.scene;
-
-                // Pan dot grid smoothly
-                document.getElementById('grid').style.transform = `translate(${(t*18)%38}px, ${(t*18)%38}px)`;
-
-                // Mascot cute bounce & tilt
-                const bounceY = Math.sin(t * 6.5) * 9;
-                const tilt = Math.sin(t * 3.2) * 6;
-                const popScale = Math.min(1.15, 0.9 + 0.25 * spring(Math.min(1, p * 3)));
-                document.getElementById('mascot').style.transform = `translateY(${bounceY}px) rotate(${tilt}deg) scale(${popScale})`;
-                document.getElementById('mascotSym').innerText = scene.symbol || "✨";
-
-                // Update Top Badge & Subtitle
-                document.getElementById('topTag').innerText = scene.badge || "EXPLAINER UI";
-                document.getElementById('subText').innerText = scene.text || "";
-
-                const accent = scene.accent || "#4F46E5";
-                document.getElementById('dotLive').style.background = accent;
-
-                // Build Headline with Highlight Pill
-                let titleHtml = scene.title || "";
-                if (scene.highlight && titleHtml.toLowerCase().includes(scene.highlight.toLowerCase())) {
-                  const reg = new RegExp(`(${scene.highlight})`, 'gi');
-                  titleHtml = titleHtml.replace(reg, `<span class="hl-pill">$1</span>`);
-                } else if (scene.highlight) {
-                  titleHtml += ` <span class="hl-pill">${scene.highlight}</span>`;
-                }
-
-                const s1 = Math.max(0, Math.min(1, p * 3.2));
-                const ease1 = spring(s1);
-                const cards = scene.cards || ["Key Point 1", "Key Point 2", "Key Point 3"];
-                const layout = scene.layout || "list_cards";
-
-                let html = `<div class="headline" style="transform: translateY(${(1-ease1)*35}px) scale(${0.92 + 0.08*ease1}); opacity:${ s1 };">${titleHtml}</div>`;
-
-                if (layout === "browser_window") {
-                  const wProg = Math.min(100, Math.round(ease1 * (scene.stat_value || 88)));
-                  html += `
-                    <div class="browser-win" style="transform: translateY(${(1-ease1)*55}px) scale(${0.9 + 0.1*ease1}); opacity:${s1};">
-                      <div class="win-header">
-                        <div class="win-dot" style="background:#EF4444;"></div>
-                        <div class="win-dot" style="background:#F59E0B;"></div>
-                        <div class="win-dot" style="background:#10B981;"></div>
-                        <div class="win-url">ui://mental-clarity.app/${(scene.badge || 'focus').toLowerCase().replace(/\\s+/g,'-')}</div>
-                      </div>
-                      <div class="win-body">
-                        <div class="stat-row">
-                          <span>${cards[0] || 'Mental Clarity Index'}</span>
-                          <span style="color:${accent};">${wProg}%</span>
-                        </div>
-                        <div class="prog-bg"><div class="prog-fill" style="width:${wProg}%;"></div></div>
-                        <div style="display:flex; gap:18px; margin-top:8px;">
-                          ${cards.slice(1,3).map((c, idx) => `
-                            <div style="flex:1; background:#F8FAFC; padding:22px; border-radius:20px; border:1.5px solid #E2E8F0; font-size:24px; font-weight:700; color:#334155;">
-                              <span style="color:${accent}; font-weight:800; margin-right:10px;">#${idx+1}</span> ${c}
-                            </div>
-                          `).join('')}
-                        </div>
-                      </div>
-                    </div>`;
-                } else if (layout === "bento_metric") {
-                  html += `
-                    <div class="bento-grid" style="transform: scale(${0.9 + 0.1*ease1}); opacity:${s1};">
-                      <div class="bento-box" style="background: linear-gradient(135deg, #4F46E5, #3B82F6); color:#FFF;">
-                        <div class="big-stat" style="color:#FFF;">${scene.stat_value || '95'}%</div>
-                        <div style="font-size:28px; font-weight:700; opacity:0.9;">${cards[0] || 'Focus Level'}</div>
-                      </div>
-                      <div class="bento-box" style="gap:20px;">
-                        ${cards.slice(1,3).map((c, idx) => `
-                          <div style="display:flex; align-items:center; gap:18px; background:#F8FAFC; padding:20px 24px; border-radius:20px; border:1.5px solid #E2E8F0;">
-                            <div class="num-badge" style="width:48px; height:48px; font-size:22px;">${idx+1}</div>
-                            <div style="font-size:25px; font-weight:700; color:#1E293B;">${c}</div>
-                          </div>
-                        `).join('')}
-                      </div>
-                    </div>`;
-                } else {
-                  // Default: Floating List Cards with Staggered Spring Animation
-                  html += `<div class="cards-wrap">`;
-                  cards.slice(0, 3).forEach((c, idx) => {
-                    const delayP = Math.max(0, Math.min(1, (p - idx * 0.12) * 3.2));
-                    const cEase = spring(delayP);
-                    html += `
-                      <div class="ui-card" style="transform: translateY(${(1-cEase)*65}px) scale(${0.88 + 0.12*cEase}); opacity:${delayP};">
-                        <div class="num-badge" style="background:${accent};">${idx + 1}</div>
-                        <div class="card-txt">${c}</div>
-                      </div>`;
-                  });
-                  html += `</div>`;
-                }
-
-                document.getElementById('stage').innerHTML = html;
-              };
-            </script>
-          </body>
-          </html>
-          """
-
-          html_content = (html_template
-              .replace("__W__", str(W))
-              .replace("__H__", str(H))
-              .replace("__HEAD_SIZE__", "54" if ratio == "16:9" else "46")
-              .replace("__CARD_DIR__", "row" if ratio == "16:9" else "column"))
-
-          with open("scene.html", "w", encoding="utf-8") as f:
-              f.write(html_content)
 
           ffmpeg_cmd = [
               "ffmpeg", "-y", "-f", "image2pipe", "-vcodec", "mjpeg", "-r", str(FPS), "-i", "-",
@@ -336,23 +57,12 @@ jobs:
           with sync_playwright() as p:
               browser = p.chromium.launch()
               page = browser.new_page(viewport={"width": W, "height": H})
-              page.goto(f"file://{os.path.abspath('scene.html')}")
+              page.goto(f"file://{os.path.abspath(html_path)}", wait_until="networkidle")
 
               for frame in range(total_frames):
                   t = frame / FPS
-                  active = scenes[-1] if scenes else {}
-                  for s in scenes:
-                      if float(s.get("start", 0)) <= t <= float(s.get("end", 9999)):
-                          active = s
-                          break
-
-                  s_start = float(active.get("start", 0))
-                  s_end = float(active.get("end", s_start + 3.0))
-                  prog = max(0.0, min(1.0, (t - s_start) / max(0.1, s_end - s_start)))
-
-                  page.evaluate("window.renderFrame", {"t": t, "prog": prog, "scene": active})
-                  jpg_bytes = page.screenshot(type="jpeg", quality=92)
-                  proc.stdin.write(jpg_bytes)
+                  page.evaluate(f"window.seekTo({t})")
+                  proc.stdin.write(page.screenshot(type="jpeg", quality=92))
 
               browser.close()
 
@@ -360,20 +70,20 @@ jobs:
           proc.wait()
           EOF
 
-          python3 ui_renderer.py "${{ github.event.inputs.job_id }}" "${{ github.event.inputs.aspect_ratio }}"
+          python3 render_hyperframes.py "${{ github.event.inputs.job_id }}" "${{ github.event.inputs.aspect_ratio }}"
 
-      - name: Auto-Delete Uploaded Source Files from Repo
+      - name: Auto-Delete Source Files
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git pull origin main --rebase || true
-          git rm -f "uploads/${{ github.event.inputs.job_id }}.mp3" "uploads/${{ github.event.inputs.job_id }}.json" || true
-          git commit -m "Auto-cleanup temporary voice files" || true
+          git rm -f "uploads/${{ github.event.inputs.job_id }}.mp3" "uploads/${{ github.event.inputs.job_id }}.html" || true
+          git commit -m "Auto-clean OpenMontage source" || true
           git push origin main || true
 
-      - name: Upload Video to Releases
+      - name: Publish Rendered Video
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: voice-${{ github.event.inputs.job_id }}
-          name: "Kinetic UI Video (${{ github.event.inputs.job_id }})"
-          files: output/KineticUI_${{ github.event.inputs.job_id }}.mp4
+          tag_name: om-${{ github.event.inputs.job_id }}
+          name: "OpenMontage Video (${{ github.event.inputs.job_id }})"
+          files: output/OpenMontage_${{ github.event.inputs.job_id }}.mp4
